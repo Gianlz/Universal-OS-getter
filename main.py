@@ -531,103 +531,37 @@ class OSInstaller:
             "disk_space": f"{round(psutil.disk_usage('/').free / (1024**3))} GB free"
         }
 
-    def download_os(self, url, destination):
-        """Download OS with progress bar"""
-        try:
-            # Handle redirects and get final URL
-            session = requests.Session()
-            response = session.get(url, stream=True, allow_redirects=True)
-            final_url = response.url  # Get the final URL after redirects
-            
-            response.raise_for_status()
-            total_size = int(response.headers.get('content-length', 0))
-            
-            if total_size == 0:
-                st.error("❌ Couldn't determine file size. Trying alternate method...")
-                # Try to get the file size from the server
-                response = session.head(final_url)
-                total_size = int(response.headers.get('content-length', 0))
-                if total_size == 0:
-                    st.error("❌ Could not determine file size. Download may not work properly.")
-                    return False
-
-            # Continue with the rest of your existing download_os method...
-            progress_bar = st.progress(0)
-            progress_text = st.empty()
-            
-            with open(destination, 'wb') as f:
-                downloaded = 0
-                for data in response.iter_content(chunk_size=1024*1024):
-                    downloaded += len(data)
-                    f.write(data)
-                    progress = int((downloaded / total_size) * 100)
-                    progress_bar.progress(progress)
-                    progress_text.text(f"Downloaded: {progress}% ({downloaded}/{total_size} bytes)")
-            
-            return True
-        except requests.exceptions.RequestException as e:
-            st.error(f"❌ Download failed: {str(e)}")
-            return False
-        except Exception as e:
-            st.error(f"❌ Error during download: {str(e)}")
-            return False
-
-    def verify_checksum(self, file_path, expected_checksum):
-        """Verify file integrity"""
-        # If checksum is not provided or is a placeholder, skip verification
-        if not expected_checksum or expected_checksum == "sha256:...":
-            st.warning("⚠️ Checksum verification skipped - no checksum provided")
-            return True
-        
-        try:
-            sha256_hash = hashlib.sha256()
-            with open(file_path, "rb") as f:
-                for byte_block in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(byte_block)
-            calculated_hash = sha256_hash.hexdigest()
-            
-            # Remove 'sha256:' prefix if present in expected_checksum
-            expected_checksum = expected_checksum.replace('sha256:', '')
-            
-            is_valid = calculated_hash.lower() == expected_checksum.lower()
-            if is_valid:
-                st.success(f"✅ Checksum verification passed")
-            else:
-                st.error(f"❌ Checksum mismatch:\nExpected: {expected_checksum}\nGot: {calculated_hash}")
-            return is_valid
-        except Exception as e:
-            st.error(f"Error during checksum verification: {str(e)}")
-            return False
-
-    def verify_download_link(self, url):
-        """Verify if the download link is working"""
-        if not url:
-            return False, "No download link available"
-        
+    def prepare_download(self, url, os_name, version):
+        """Prepare download information and return direct download link"""
         try:
             session = requests.Session()
             response = session.head(url, allow_redirects=True)
             
             if response.status_code == 200:
-                # Check if it's a direct file download
-                content_type = response.headers.get('content-type', '').lower()
-                content_length = response.headers.get('content-length')
+                # Get final URL after redirects
+                final_url = response.url
                 
-                if 'iso' in content_type or 'octet-stream' in content_type:
-                    return True, "Ready for download"
-                elif content_length and int(content_length) > 100000000:  # Larger than 100MB
-                    return True, "Ready for download"
-                elif any(domain in url.lower() for domain in ['microsoft.com', 'zorinos.com', 'elementary.io']):
-                    return True, "Redirect to official download page"
-                else:
-                    return False, "Invalid ISO file"
-            else:
-                return False, f"Link error: HTTP {response.status_code}"
-            
-        except requests.exceptions.RequestException as e:
-            return False, f"Connection error: {str(e)}"
+                # Get file size
+                content_length = response.headers.get('content-length')
+                if content_length:
+                    size_mb = round(int(content_length) / (1024 * 1024), 2)
+                    
+                    return {
+                        'success': True,
+                        'url': final_url,
+                        'size': f"{size_mb} MB",
+                        'filename': f"{os_name}_{version}.iso"
+                    }
+                
+            return {
+                'success': False,
+                'error': "Couldn't get download information"
+            }
         except Exception as e:
-            return False, f"Verification error: {str(e)}"
+            return {
+                'success': False,
+                'error': str(e)
+            }
 
 def main():
     st.set_page_config(
@@ -691,10 +625,9 @@ def main():
                         key=f"path_{os_name}"
                     )
                     
-                    if st.button("Download and Install", key=f"install_{os_name}"):
+                    if st.button("Download", key=f"install_{os_name}"):
                         try:
                             os_info = data["versions"][version]
-                            destination = os.path.join(download_path, f"{os_name}_{version}.iso")
                             
                             # Special handling for Windows
                             if os_name == "Windows":
@@ -709,18 +642,42 @@ def main():
                                 st.markdown(f"[Click here to download {version}]({os_info['url']})")
                                 continue
                             
-                            with st.spinner(f"Downloading {os_name} {version}..."):
-                                if installer.download_os(os_info["url"], destination):
-                                    if os.path.exists(destination):
-                                        if installer.verify_checksum(destination, os_info["checksum"]):
-                                            st.success(f"✅ {os_name} {version} downloaded successfully!")
-                                            st.info("Follow the installation instructions in your system's boot menu.")
-                                        else:
-                                            st.warning("⚠️ Download completed but checksum verification failed. The file might be corrupted.")
-                                    else:
-                                        st.error("❌ Download failed - file not found")
+                            # Prepare download information
+                            download_info = installer.prepare_download(os_info["url"], os_name, version)
+                            
+                            if download_info['success']:
+                                st.success(f"✅ Download ready:")
+                                st.info(f"File size: {download_info['size']}")
+                                
+                                # Create download button with direct link
+                                st.markdown(f"""
+                                <a href="{download_info['url']}" 
+                                   target="_blank"
+                                   download="{download_info['filename']}"
+                                   style="text-decoration: none;">
+                                    <button style="
+                                        background-color: #4CAF50;
+                                        border: none;
+                                        color: white;
+                                        padding: 15px 32px;
+                                        text-align: center;
+                                        text-decoration: none;
+                                        display: inline-block;
+                                        font-size: 16px;
+                                        margin: 4px 2px;
+                                        cursor: pointer;
+                                        border-radius: 4px;">
+                                        📥 Click to Download {os_name} {version}
+                                    </button>
+                                </a>
+                                """, unsafe_allow_html=True)
+                                
+                                st.info("After downloading, follow the installation instructions in your system's boot menu.")
+                            else:
+                                st.error(f"❌ Error preparing download: {download_info.get('error', 'Unknown error')}")
+                                
                         except Exception as e:
-                            st.error(f"Error during download: {str(e)}")
+                            st.error(f"Error setting up download: {str(e)}")
                 else:
                     st.error(f"❌ Download currently unavailable: {status_message}")
                     st.warning("""
