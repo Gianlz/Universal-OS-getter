@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import os
@@ -14,6 +13,21 @@ import json
 from datetime import datetime, timedelta
 import threading
 import time
+
+# Add this before the main() function
+official_links = {
+    "Ubuntu": "https://ubuntu.com/download",
+    "Fedora": "https://fedoraproject.org/workstation/download",
+    "Debian": "https://www.debian.org/download",
+    "Linux Mint": "https://linuxmint.com/download.php",
+    "Pop!_OS": "https://pop.system76.com",
+    "Manjaro": "https://manjaro.org/download",
+    "Zorin OS": "https://zorin.com/os/download",
+    "elementary OS": "https://elementary.io",
+    "Kali Linux": "https://www.kali.org/get-kali",
+    "Windows": "https://www.microsoft.com/software-download",
+    "Arch Linux": "https://archlinux.org/download/"
+}
 
 class LinkManager:
     def __init__(self):
@@ -539,19 +553,15 @@ class OSInstaller:
             response = session.head(url, allow_redirects=True)
             
             if response.status_code == 200:
-                # Get final URL after redirects
                 final_url = response.url
-                
-                # Get file size
                 content_length = response.headers.get('content-length')
+                
                 if content_length:
                     size_mb = round(int(content_length) / (1024 * 1024), 2)
-                    
                     return {
                         'success': True,
                         'url': final_url,
-                        'size': f"{size_mb} MB",
-                        'filename': f"{os_name}_{version}.iso"
+                        'size': f"{size_mb} MB"
                     }
                 
             return {
@@ -650,41 +660,29 @@ def main():
                 if is_valid:
                     st.success("✅ Download link available")
                     
-                    download_path = st.text_input(
-                        "Download Path",
-                        value=str(Path.home() / "Downloads"),
-                        key=f"path_{os_name}"
-                    )
-                    
                     if st.button("Download", key=f"install_{os_name}"):
                         try:
                             os_info = data["versions"][version]
                             
-                            # Special handling for Windows
-                            if os_name == "Windows":
-                                st.info("Opening Windows download page in your browser...")
+                            # Special handling for Windows and Zorin OS
+                            if os_name in ["Windows", "Zorin OS"]:
+                                st.info(f"Opening {os_name} download page in your browser...")
                                 st.markdown(f"[Click here to download {version}]({os_info['url']})")
-                                st.markdown(data["note"])
-                                continue
-                                
-                            # Special handling for Zorin OS
-                            if os_name == "Zorin OS":
-                                st.info("Opening Zorin OS download page in your browser...")
-                                st.markdown(f"[Click here to download {version}]({os_info['url']})")
+                                if "note" in data:
+                                    st.markdown(data["note"])
                                 continue
                             
-                            # Prepare download information
+                            # For direct downloads
                             download_info = installer.prepare_download(os_info["url"], os_name, version)
                             
                             if download_info['success']:
-                                st.success(f"✅ Download ready:")
+                                st.success("✅ Download ready")
                                 st.info(f"File size: {download_info['size']}")
                                 
-                                # Create download button with direct link
+                                # Direct download link button
                                 st.markdown(f"""
                                 <a href="{download_info['url']}" 
                                    target="_blank"
-                                   download="{download_info['filename']}"
                                    style="text-decoration: none;">
                                     <button style="
                                         background-color: #4CAF50;
@@ -698,7 +696,7 @@ def main():
                                         margin: 4px 2px;
                                         cursor: pointer;
                                         border-radius: 4px;">
-                                        📥 Click to Download {os_name} {version}
+                                        📥 Download {os_name} {version}
                                     </button>
                                 </a>
                                 """, unsafe_allow_html=True)
@@ -714,27 +712,8 @@ def main():
                     st.warning("""
                     🛠️ Maintenance Notice
                     
-                    This download is currently unavailable. This might be due to:
-                    - Temporary server maintenance
-                    - Link updates in progress
-                    - Recent version changes
-                    
-                    Please try again later or check the official website:
+                    This download is currently unavailable. Please check the official website:
                     """)
-                    
-                    # Add official website links based on OS
-                    official_links = {
-                        "Ubuntu": "https://ubuntu.com/download",
-                        "Fedora": "https://fedoraproject.org/workstation/download",
-                        "Debian": "https://www.debian.org/download",
-                        "Linux Mint": "https://linuxmint.com/download.php",
-                        "Pop!_OS": "https://pop.system76.com",
-                        "Manjaro": "https://manjaro.org/download",
-                        "Zorin OS": "https://zorin.com/os/download",
-                        "elementary OS": "https://elementary.io",
-                        "Kali Linux": "https://www.kali.org/get-kali",
-                        "Windows": "https://www.microsoft.com/software-download"
-                    }
                     
                     if os_name in official_links:
                         st.markdown(f"[Official {os_name} Download Page]({official_links[os_name]})")
