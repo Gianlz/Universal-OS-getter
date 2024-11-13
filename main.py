@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 import os
@@ -95,7 +96,7 @@ class LinkManager:
             timestamp = "20231031"  # Release timestamp
             base_url = "https://objects.githubusercontent.com/github-production-release-asset-2e65be"
             
-            # This is their current direct download link pattern
+            # This is their current directAttributeError: 'OSInstaller' object has no attribute 'verify_download_link' download link pattern
             direct_url = f"{base_url}/elementary-os-{version}-stable.{timestamp}.iso"
             
             # Verify if the URL exists
@@ -562,6 +563,36 @@ class OSInstaller:
                 'success': False,
                 'error': str(e)
             }
+
+    def verify_download_link(self, url):
+        """Verify if the download link is working"""
+        if not url:
+            return False, "No download link available"
+        
+        try:
+            session = requests.Session()
+            response = session.head(url, allow_redirects=True)
+            
+            if response.status_code == 200:
+                # Check if it's a direct file download
+                content_type = response.headers.get('content-type', '').lower()
+                content_length = response.headers.get('content-length')
+                
+                if 'iso' in content_type or 'octet-stream' in content_type:
+                    return True, "Ready for download"
+                elif content_length and int(content_length) > 100000000:  # Larger than 100MB
+                    return True, "Ready for download"
+                elif any(domain in url.lower() for domain in ['microsoft.com', 'zorinos.com', 'elementary.io']):
+                    return True, "Redirect to official download page"
+                else:
+                    return False, "Invalid ISO file"
+            else:
+                return False, f"Link error: HTTP {response.status_code}"
+            
+        except requests.exceptions.RequestException as e:
+            return False, f"Connection error: {str(e)}"
+        except Exception as e:
+            return False, f"Verification error: {str(e)}"
 
 def main():
     st.set_page_config(
